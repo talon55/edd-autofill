@@ -26,6 +26,10 @@ The goal is to eliminate manual copy-pasting of job search activity fields. This
 - Multiple sheets or tabs
 - Retry logic for expired tokens
 
+**Permanent non-goals (never in any version):**
+- Storing or handling login credentials for Google or the EDD website — the extension assumes the user is already signed in to both
+- Submitting the EDD form on the user's behalf (though a future version could detect submission and offer to update the sheet)
+
 ---
 
 ## Target Environment
@@ -96,7 +100,7 @@ Flow on each fill:
 3. POST the JWT to `https://oauth2.googleapis.com/token` for a short-lived access token
 4. Use the access token as a Bearer token on all Sheets API requests
 
-The access token is not cached between sessions — a new one is fetched on each toolbar click. Token lifetime is 1 hour; for a single fill operation this is sufficient.
+The access token is not cached between sessions — a new one is fetched on each toolbar click. Token lifetime is 1 hour; for a single fill operation this is sufficient. Caching the token in `chrome.storage.local` with its expiry timestamp is a planned post-MVP improvement (see Future Iterations).
 
 ---
 
@@ -111,6 +115,8 @@ The access token is not cached between sessions — a new one is fetched on each
 5. Background fetches all rows from the configured sheet range via Sheets API
 6. Background scans the Status column for the first blank row
    - If none found → return error: "No unprocessed rows found"
+6a. Background checks that all required columns in that row are non-empty
+   - If any required column is blank → return error: "Required field missing: [column name]"
 7. Background sends the row data to `content-script.js` via `chrome.tabs.sendMessage`
 8. Content script maps column values to form fields using `FIELD_MAP` and fills each one, dispatching `input` and `change` events after each fill
 9. Content script returns `{ success: true }` or `{ success: false, field: "..." }` to background
@@ -127,18 +133,21 @@ Selectors are filled in during the form reverse-engineering task (inspect the li
 
 ```js
 const FIELD_MAP = {
-  "Date of Contact":      null, // TODO: fill in after reverse-engineering
-  "Type of Work":         null,
-  "Employer/Agency Name": null,
-  "Contact Type":         null,
-  "Outcome":              null,
-  "Name of Person":       null,
-  "URL/Email":            null,
-  "Phone Number":         null,
+  //                              selector (filled after reverse-engineering)   required?
+  "Date of Contact":      { selector: null, required: true  },
+  "Type of Work":         { selector: null, required: true  },
+  "Employer/Agency Name": { selector: null, required: true  },
+  "Contact Type":         { selector: null, required: true  },
+  "Outcome":              { selector: null, required: false },
+  "Name of Person":       { selector: null, required: false },
+  "URL/Email":            { selector: null, required: false },
+  "Phone Number":         { selector: null, required: false },
 };
 ```
 
-Keys match sheet column headers exactly. The Status column is not in `FIELD_MAP` — it is handled separately by `background.js`.
+Keys match sheet column headers exactly. The `required` flags reflect what the EDD form itself requires — adjust after reverse-engineering if the form enforces different fields. The Status column is not in `FIELD_MAP` — it is handled separately by `background.js`.
+
+Adding new columns in future versions means adding one entry to `FIELD_MAP` and ensuring the corresponding column exists in the sheet.
 
 ---
 
@@ -152,6 +161,7 @@ The popup shows one message at a time:
 | Not on EDD form page | "Navigate to the EDD certification form first." |
 | Auth failed | "Could not authenticate with Google. Check your service account JSON." |
 | No unprocessed rows | "No blank rows found — nothing to fill." |
+| Required column blank | "Required field missing in row [N]: [column name]." |
 | Field not found | "Could not find field: [field name]. The form may have changed." |
 | Sheet write failed | "Form filled, but failed to mark row as Entered. Check sheet permissions." |
 | Success | "Form filled. Row [N] marked as Entered." |
@@ -190,3 +200,19 @@ The popup "not on EDD form page" check compares the active tab URL against the E
 - **`input`/`change` events** must be dispatched after setting field values, as the EDD form likely uses a JS framework that doesn't detect direct `.value` assignments without them.
 - **Form reverse-engineering** is a prerequisite before the content script can be completed. Use Edge DevTools on the live EDD page to identify each field's selector and record the page URL pattern.
 - The **sheet tab name** is hard-coded in `background.js`. Determine it during setup and update accordingly.
+
+---
+
+## Future Iterations
+
+The v1 design is intentionally minimal. These are the planned directions for future versions, roughly in priority order:
+
+| Iteration | Notes |
+|---|---|
+| **Cache access token** | Store token + expiry in `chrome.storage.local`; skip JWT flow if a valid token exists. Saves a round-trip on every fill. |
+| **OAuth support** | Add `chrome.identity.launchWebAuthFlow` as an alternative auth method. Needed if sharing with others or accessing sheets not owned by the service account. Service account remains the default. |
+| **Additional form columns** | Add new entries to `FIELD_MAP`. No architectural change needed — the structure already supports arbitrary column additions. |
+| **Support for multiple form types** | Extract `FIELD_MAP` into a named config (e.g. `FORMS.jobSearch`, `FORMS.pay`) and select the right one based on the current page URL. Each form type gets its own map and sheet range. |
+| **Fill multiple entries at once** | Instead of stopping at the first blank row, collect N consecutive blank rows and fill the form N times (requires navigating through multi-entry form pages or repeating per-entry). |
+| **Default values for other form pages** | Some EDD certification pages have common answers that don't come from the sheet (e.g. confirmation checkboxes). These could be hard-coded per page type. |
+| **Detect form submission + offer sheet update** | Listen for form submit events on the EDD page; offer to update the row Status to `"Submitted"` automatically rather than requiring manual update. |
