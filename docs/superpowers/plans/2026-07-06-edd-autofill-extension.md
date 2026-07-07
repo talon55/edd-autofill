@@ -6,14 +6,16 @@
 
 **Architecture:** Plain-JS MV3 extension with no build step. A background service worker owns all auth and Sheets API logic; a content script fills the form on the EDD page; a popup provides the trigger and status feedback. Pure business logic lives in `src/logic.js` so it can be tested with Node.js.
 
-**Tech Stack:** Chrome Extension API (MV3), Google Sheets API v4, Web Crypto API (RS256 JWT signing), Node.js (tests only — no test framework required)
+**Tech Stack:** Chrome Extension API (MV3), Google Sheets API v4, Web Crypto API (PKCE SHA-256), `chrome.identity.launchWebAuthFlow`, Node.js (tests only — no test framework required)
 
 ## Global Constraints
 
 - Target browser: Microsoft Edge (Chromium MV3)
 - Extension API: `chrome.*` namespace throughout — never `browser.*`
 - No build step — plain JS files, no bundler, no transpilation
-- Credentials (`sheetId`, `serviceAccountJson`) stored only in `chrome.storage.local` — never in source files
+- User-visible credentials (`sheetId`, `clientId`) stored only in `chrome.storage.local` — never in source files
+- OAuth tokens and refresh tokens stored in `chrome.storage.local` by the auth module — never in source files
+- No service account keys — OAuth 2.0 with PKCE is the auth approach
 - The extension must never submit the EDD form
 - The extension must never store or handle login credentials for Google or the EDD website
 - Node.js: any current LTS (used for unit tests only)
@@ -60,7 +62,7 @@
     "page": "options.html",
     "open_in_tab": true
   },
-  "permissions": ["activeTab", "storage", "tabs"],
+  "permissions": ["activeTab", "storage", "tabs", "identity"],
   "host_permissions": [
     "*://unemployment.edd.ca.gov/*",
     "https://sheets.googleapis.com/*",
@@ -70,6 +72,8 @@
 ```
 
 Note: `*://unemployment.edd.ca.gov/*` is a placeholder URL pattern. It is confirmed and corrected in Task 9.
+
+Note: A `"key"` field should be added to `manifest.json` to stabilize the extension ID (required so the OAuth redirect URI stays constant). Generate it after first loading the extension: `edge://extensions` → "Pack extension" → get `.pem` file → run `openssl rsa -in key.pem -pubout -outform DER | openssl base64 -A` → paste result as `"key": "<value>"`. Do this before registering the OAuth redirect URI in Google Cloud Console.
 
 - [ ] **Step 2: Create stub files**
 
@@ -140,20 +144,25 @@ git commit -m "feat: extension scaffold and manifest"
 - Modify: `options.js`
 
 **Interfaces:**
-- Produces: `chrome.storage.local` keys `sheetId` (string) and `serviceAccountJson` (string, raw JSON text)
+- Produces: `chrome.storage.local` keys `sheetId` (string) and `clientId` (string)
 
-- [ ] **Step 1: Create a Google Cloud service account and share the sheet**
+- [ ] **Step 1: Create an OAuth 2.0 Client ID in Google Cloud Console**
 
 This is a one-time setup. You'll need a Google account with access to Google Cloud Console.
 
 1. Go to [console.cloud.google.com](https://console.cloud.google.com) and create a new project (or select an existing one)
 2. In the search bar, search for "Google Sheets API" → Enable it
-3. Go to **IAM & Admin → Service Accounts** → click "Create Service Account"
-4. Give it any name (e.g. `edd-autofill`), click through the optional fields, click Done
-5. Click the service account you just created → go to the **Keys** tab
-6. Click **Add Key → Create new key → JSON** → a `.json` file downloads to your computer
-7. Open your Google Sheet, click **Share** (top right), and add the `client_email` value from the JSON file as an editor (the email looks like `edd-autofill@<project>.iam.gserviceaccount.com`)
-8. Keep the downloaded JSON file open — you'll paste its full contents into the Options page in Step 4 below
+3. Go to **APIs & Services → OAuth consent screen**
+   - Choose "External" user type → click Create
+   - Fill in App name (e.g. `EDD Autofill`), your email for support and developer contact → Save and Continue
+   - Skip Scopes → Save and Continue
+   - Skip Test users → Save and Continue
+4. Go to **APIs & Services → Credentials** → click **Create Credentials → OAuth client ID**
+   - Application type: **Chrome Extension**
+   - Item ID: load the extension in Edge (`edge://extensions`), copy the extension ID shown there, paste it here
+   - Click Create — copy the **Client ID** (looks like `123456789012-abc....apps.googleusercontent.com`)
+
+Note: The OAuth redirect URI is derived automatically from the extension ID via `chrome.identity.getRedirectURL()`. To keep it stable across reinstalls, add a `"key"` field to `manifest.json` before registering the Client ID (see Task 1 note).
 
 - [ ] **Step 2: Write `options.html`**
 
@@ -166,8 +175,7 @@ This is a one-time setup. You'll need a Google account with access to Google Clo
   <style>
     body { font-family: sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
     label { display: block; margin-top: 1rem; font-weight: bold; }
-    input, textarea { width: 100%; box-sizing: border-box; margin-top: 0.25rem; padding: 0.4rem; }
-    textarea { height: 10rem; font-family: monospace; font-size: 0.8rem; }
+    input { width: 100%; box-sizing: border-box; margin-top: 0.25rem; padding: 0.4rem; }
     button { margin-top: 1rem; padding: 0.5rem 1.5rem; }
     #status { margin-top: 0.75rem; }
     .error { color: #c00; }
@@ -179,8 +187,8 @@ This is a one-time setup. You'll need a Google account with access to Google Clo
   <label for="sheetId">Google Sheet ID
     <input type="text" id="sheetId" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms" />
   </label>
-  <label for="serviceAccountJson">Service Account JSON Key
-    <textarea id="serviceAccountJson" placeholder="Paste the full contents of your service account JSON key file here"></textarea>
+  <label for="clientId">OAuth 2.0 Client ID
+    <input type="text" id="clientId" placeholder="123456789012-abc....apps.googleusercontent.com" />
   </label>
   <button id="save">Save</button>
   <div id="status"></div>
@@ -193,31 +201,23 @@ This is a one-time setup. You'll need a Google account with access to Google Clo
 
 ```js
 document.addEventListener('DOMContentLoaded', async () => {
-  const { sheetId, serviceAccountJson } = await chrome.storage.local.get(['sheetId', 'serviceAccountJson']);
-  if (sheetId)             document.getElementById('sheetId').value             = sheetId;
-  if (serviceAccountJson)  document.getElementById('serviceAccountJson').value  = serviceAccountJson;
+  const { sheetId, clientId } = await chrome.storage.local.get(['sheetId', 'clientId']);
+  if (sheetId)  document.getElementById('sheetId').value  = sheetId;
+  if (clientId) document.getElementById('clientId').value = clientId;
 });
 
 document.getElementById('save').addEventListener('click', async () => {
-  const sheetId            = document.getElementById('sheetId').value.trim();
-  const serviceAccountJson = document.getElementById('serviceAccountJson').value.trim();
-  const statusEl           = document.getElementById('status');
+  const sheetId  = document.getElementById('sheetId').value.trim();
+  const clientId = document.getElementById('clientId').value.trim();
+  const statusEl = document.getElementById('status');
 
-  if (!sheetId || !serviceAccountJson) {
+  if (!sheetId || !clientId) {
     statusEl.className   = 'error';
     statusEl.textContent = 'Both fields are required.';
     return;
   }
 
-  try {
-    JSON.parse(serviceAccountJson);
-  } catch {
-    statusEl.className   = 'error';
-    statusEl.textContent = 'Service account JSON is not valid JSON.';
-    return;
-  }
-
-  await chrome.storage.local.set({ sheetId, serviceAccountJson });
+  await chrome.storage.local.set({ sheetId, clientId });
   statusEl.className   = 'ok';
   statusEl.textContent = 'Saved.';
 });
@@ -228,7 +228,7 @@ document.getElementById('save').addEventListener('click', async () => {
 1. Reload the extension
 2. Right-click the toolbar icon → "Extension options" (or open it from `edge://extensions`)
 3. Paste the **Google Sheet ID** from the sheet URL: `https://docs.google.com/spreadsheets/d/<SHEET_ID>/edit`
-4. Paste the **full contents** of the downloaded service account JSON key file into the second field
+4. Paste the **OAuth 2.0 Client ID** you created in Step 1
 5. Click Save → should show "Saved."
 6. Reload the options page — both values must still be present
 
@@ -236,7 +236,7 @@ document.getElementById('save').addEventListener('click', async () => {
 
 ```bash
 git add options.html options.js
-git commit -m "feat: options page saves sheet ID and service account JSON"
+git commit -m "feat: options page saves sheet ID and OAuth client ID"
 ```
 
 ---
@@ -407,13 +407,13 @@ git commit -m "feat: pure data logic with Node.js unit tests"
 
 ---
 
-### Task 4: Google auth — JWT signing and token exchange
+### Task 4: Google auth — OAuth 2.0 PKCE via launchWebAuthFlow
 
 **Files:**
 - Modify: `background.js`
 
 **Interfaces:**
-- Produces: `getAccessToken(serviceAccountJson: string): Promise<string>` — resolves with a short-lived Bearer token
+- Produces: `getAccessToken(): Promise<string>` — resolves with a valid Bearer token (cached, refreshed, or newly authorized)
 
 - [ ] **Step 1: Replace `background.js` with the auth implementation**
 
@@ -422,88 +422,135 @@ importScripts('src/logic.js');
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-async function getAccessToken(serviceAccountJson) {
-  const sa  = JSON.parse(serviceAccountJson);
-  const now = Math.floor(Date.now() / 1000);
-
-  const header  = { alg: 'RS256', typ: 'JWT' };
-  const payload = {
-    iss:   sa.client_email,
-    scope: 'https://www.googleapis.com/auth/spreadsheets',
-    aud:   'https://oauth2.googleapis.com/token',
-    iat:   now,
-    exp:   now + 3600,
-  };
-
-  const b64url = obj =>
-    btoa(JSON.stringify(obj))
-      .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-
-  const signingInput = `${b64url(header)}.${b64url(payload)}`;
-
-  const pemContents = sa.private_key
-    .replace(/-----BEGIN PRIVATE KEY-----/, '')
-    .replace(/-----END PRIVATE KEY-----/, '')
-    .replace(/\s/g, '');
-  const keyDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
-
-  const cryptoKey = await crypto.subtle.importKey(
-    'pkcs8',
-    keyDer,
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-
-  const sigBytes = await crypto.subtle.sign(
-    'RSASSA-PKCS1-v1_5',
-    cryptoKey,
-    new TextEncoder().encode(signingInput)
-  );
-
-  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sigBytes)))
+function base64urlEncode(buffer) {
+  return btoa(String.fromCharCode(...new Uint8Array(buffer)))
     .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
 
-  const jwt = `${signingInput}.${sigB64}`;
+async function generatePKCE() {
+  const verifierBytes = crypto.getRandomValues(new Uint8Array(32));
+  const verifier = base64urlEncode(verifierBytes);
+  const challengeBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  const challenge = base64urlEncode(challengeBuffer);
+  return { verifier, challenge };
+}
 
+async function cacheTokens(tokenData) {
+  const update = {
+    accessToken:  tokenData.access_token,
+    tokenExpiry:  Date.now() + (tokenData.expires_in - 60) * 1000,
+  };
+  if (tokenData.refresh_token) update.refreshToken = tokenData.refresh_token;
+  await chrome.storage.local.set(update);
+}
+
+async function refreshAccessToken(clientId, refreshToken) {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: jwt,
+      refresh_token: refreshToken,
+      client_id:     clientId,
+      grant_type:    'refresh_token',
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Token refresh failed (${res.status}): ${body}`);
+  }
+  const tokenData = await res.json();
+  await cacheTokens(tokenData);
+  return tokenData.access_token;
+}
+
+async function getAccessToken() {
+  const { accessToken, tokenExpiry, refreshToken, clientId } =
+    await chrome.storage.local.get(['accessToken', 'tokenExpiry', 'refreshToken', 'clientId']);
+
+  if (accessToken && tokenExpiry && Date.now() < tokenExpiry) {
+    return accessToken;
+  }
+
+  if (!clientId) throw new Error('Client ID not configured');
+
+  if (refreshToken) {
+    try {
+      return await refreshAccessToken(clientId, refreshToken);
+    } catch {
+      // fall through to full auth flow
+    }
+  }
+
+  const { verifier, challenge } = await generatePKCE();
+  const redirectUri = chrome.identity.getRedirectURL();
+
+  const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  authUrl.searchParams.set('client_id',             clientId);
+  authUrl.searchParams.set('redirect_uri',          redirectUri);
+  authUrl.searchParams.set('response_type',         'code');
+  authUrl.searchParams.set('scope',                 'https://www.googleapis.com/auth/spreadsheets');
+  authUrl.searchParams.set('code_challenge',        challenge);
+  authUrl.searchParams.set('code_challenge_method', 'S256');
+  authUrl.searchParams.set('access_type',           'offline');
+  authUrl.searchParams.set('prompt',                'consent');
+
+  const responseUrl = await new Promise((resolve, reject) => {
+    chrome.identity.launchWebAuthFlow(
+      { url: authUrl.toString(), interactive: true },
+      url => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve(url);
+      }
+    );
+  });
+
+  const code = new URL(responseUrl).searchParams.get('code');
+  if (!code) throw new Error('No authorization code in response');
+
+  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      code,
+      client_id:     clientId,
+      redirect_uri:  redirectUri,
+      grant_type:    'authorization_code',
+      code_verifier: verifier,
     }),
   });
 
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Token exchange failed (${res.status}): ${body}`);
+  if (!tokenRes.ok) {
+    const body = await tokenRes.text();
+    throw new Error(`Token exchange failed (${tokenRes.status}): ${body}`);
   }
 
-  return (await res.json()).access_token;
+  const tokenData = await tokenRes.json();
+  await cacheTokens(tokenData);
+  return tokenData.access_token;
 }
 ```
 
 - [ ] **Step 2: Verify auth manually via the background DevTools console**
 
-1. Ensure you have already saved a valid service account JSON in Options (Task 2)
+1. Ensure you have already saved a valid Client ID in Options (Task 2)
 2. Reload the extension
-3. Open `edge://extensions` → find EDD Autofill → click "Inspect views: background page" (or "service worker")
+3. Open `edge://extensions` → find EDD Autofill → click "Inspect views: service worker"
 4. In the console:
 ```js
-const { serviceAccountJson } = await chrome.storage.local.get('serviceAccountJson');
-const token = await getAccessToken(serviceAccountJson);
+const token = await getAccessToken();
 console.log(token.substring(0, 20) + '…');
 ```
-Expected: a token string beginning with `ya29.` (100+ characters)
+Expected: Google's consent screen opens in a popup on first run. After granting access, the console logs a token string (100+ characters).
 
-If you see a 401 or "invalid_grant" error, check that the service account JSON is valid and that the sheet has been shared with the `client_email` address in the JSON.
+On subsequent runs the console logs the token immediately (no popup) because the cached token or refresh token is used.
+
+If you see an error about the redirect URI not matching: ensure the Client ID in Google Cloud Console was created as type "Chrome Extension" with the correct extension ID, and that the `"key"` field in `manifest.json` is set (so the extension ID is stable).
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add background.js
-git commit -m "feat: service account JWT auth via Web Crypto API"
+git commit -m "feat: OAuth 2.0 PKCE auth via launchWebAuthFlow with token caching"
 ```
 
 ---
@@ -560,8 +607,8 @@ Open your Google Sheet. The tab name is the label at the bottom of the page. Rep
 
 In the background DevTools console:
 ```js
-const { sheetId, serviceAccountJson } = await chrome.storage.local.get(['sheetId', 'serviceAccountJson']);
-const token = await getAccessToken(serviceAccountJson);
+const { sheetId } = await chrome.storage.local.get(['sheetId']);
+const token = await getAccessToken();
 const rows  = await fetchSheetValues(token, sheetId, SHEET_RANGE);
 console.log('Headers:', rows[0]);
 console.log('Row 2:', rows[1]);
@@ -591,7 +638,7 @@ git commit -m "feat: Sheets API fetch and update helpers"
 - Modify: `background.js`
 
 **Interfaces:**
-- Consumes: all functions from Tasks 3–5; `chrome.tabs.sendMessage` to content script
+- Consumes: `getAccessToken()` from Task 4, all other functions from Tasks 3–5; `chrome.tabs.sendMessage` to content script
 - Produces: `chrome.runtime.onMessage` listener — handles `{ type: 'fill' }`, responds `{ success: boolean, message: string }`
 
 - [ ] **Step 1: Add the message handler to `background.js`**
@@ -611,16 +658,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 async function handleFill() {
-  const { sheetId, serviceAccountJson } = await chrome.storage.local.get(['sheetId', 'serviceAccountJson']);
-  if (!sheetId || !serviceAccountJson) {
+  const { sheetId, clientId } = await chrome.storage.local.get(['sheetId', 'clientId']);
+  if (!sheetId || !clientId) {
     return { success: false, message: 'Please complete setup in Options before using.' };
   }
 
   let token;
   try {
-    token = await getAccessToken(serviceAccountJson);
+    token = await getAccessToken();
   } catch {
-    return { success: false, message: 'Could not authenticate with Google. Check your service account JSON.' };
+    return { success: false, message: 'Could not authenticate with Google. Check your Client ID in Options.' };
   }
 
   const rows    = await fetchSheetValues(token, sheetId, SHEET_RANGE);
