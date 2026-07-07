@@ -87,3 +87,67 @@ async function updateSheetValues(token, sheetId, range, values) {
   });
   if (!res.ok) throw new Error(`Sheet update failed (${res.status})`);
 }
+
+// ── Message handler ───────────────────────────────────────────────────────────
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === 'fill') {
+    handleFill()
+      .then(sendResponse)
+      .catch(err => sendResponse({ success: false, message: err.message }));
+    return true; // keep message channel open for async response
+  }
+});
+
+async function handleFill() {
+  const { sheetId, serviceAccountJson } = await chrome.storage.local.get(['sheetId', 'serviceAccountJson']);
+  if (!sheetId || !serviceAccountJson) {
+    return { success: false, message: 'Please complete setup in Options before using.' };
+  }
+
+  let token;
+  try {
+    token = await getAccessToken(serviceAccountJson);
+  } catch {
+    return { success: false, message: 'Could not authenticate with Google. Check your service account JSON.' };
+  }
+
+  const rows    = await fetchSheetValues(token, sheetId, SHEET_RANGE);
+  const headers = rows[0];
+
+  const found = findFirstUnprocessedRow(rows, headers);
+  if (!found) {
+    return { success: false, message: 'No blank rows found — nothing to fill.' };
+  }
+
+  const missingField = checkRequiredFields(found.row, headers);
+  if (missingField) {
+    return { success: false, message: `Required field missing in row ${found.rowIndex + 1}: ${missingField}` };
+  }
+
+  const fieldValues = rowToObject(found.row, headers);
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  let contentResult;
+  try {
+    contentResult = await chrome.tabs.sendMessage(tab.id, { type: 'fillForm', fieldValues });
+  } catch {
+    return { success: false, message: 'Could not reach the content script. Navigate to the EDD certification form first.' };
+  }
+
+  if (!contentResult.success) {
+    return { success: false, message: `Could not find field: ${contentResult.field}. The form may have changed.` };
+  }
+
+  // rowIndex is 0-based in rows[]; rows[0] is the header = sheet row 1.
+  // So the sheet row number for a data row at index i is i + 1.
+  // Status is column B (index 1 in headers).
+  const sheetRowNumber = found.rowIndex + 1;
+  try {
+    await updateSheetValues(token, sheetId, `${SHEET_TAB_NAME}!B${sheetRowNumber}`, [['Entered']]);
+  } catch {
+    return { success: true, message: 'Form filled, but failed to mark row as Entered. Check sheet permissions.' };
+  }
+
+  return { success: true, message: `Form filled. Row ${sheetRowNumber} marked as Entered.` };
+}
