@@ -62,3 +62,28 @@ async function getAccessToken(serviceAccountJson) {
 
   return (await res.json()).access_token;
 }
+
+// ── Config ────────────────────────────────────────────────────────────────────
+
+// TODO: replace 'Sheet1' with your actual sheet tab name (visible at the bottom of the spreadsheet)
+const SHEET_TAB_NAME = 'Sheet1';
+const SHEET_RANGE    = `${SHEET_TAB_NAME}!A:I`;
+
+// ── Sheets API ────────────────────────────────────────────────────────────────
+
+async function fetchSheetValues(token, sheetId, range) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error(`Sheet fetch failed (${res.status})`);
+  return (await res.json()).values || [];
+}
+
+async function updateSheetValues(token, sheetId, range, values) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ range, majorDimension: 'ROWS', values }),
+  });
+  if (!res.ok) throw new Error(`Sheet update failed (${res.status})`);
+}
