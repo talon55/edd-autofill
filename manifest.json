@@ -3,6 +3,7 @@
   "name": "EDD Autofill",
   "version": "0.1.0",
   "description": "Fills EDD job search certification form from a Google Sheet",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtgcsJuVED/b3YAtf9owC3IsiYymcwdsoLCOJNYiOpOj7sc168WJkWeAs5azfbbyEe+HLvSg9TgEFkEkZ9RJ0xUhtwzZnuESsBSF4Jnb9GeIx1kiQ8NOyr1Gf6k7Qo+HCZdH6G37VnkMumYKrsAFRDIQAaZsCazjF12e98RWGSysjR/coldHE27nHk94bvEjkD3HUXqL7WsWnJlc9WU9BniPCmPCoDJnm8PjPDwdKMacVRTP39mTHMca+y72WeIL3xPQycaGrXcMkx3d+5k6o9Q3IRKK0tgbuQrud98wZcBtO7DjpccbTDVFnGis+rq0EvGOQ4Ba9ZFEVeCnIRI9MbQIDAQAB",
   "action": {
     "default_popup": "popup.html",
     "default_title": "EDD Autofill"
@@ -20,7 +21,7 @@
     "page": "options.html",
     "open_in_tab": true
   },
-  "permissions": ["activeTab", "storage", "tabs"],
+  "permissions": ["activeTab", "storage", "tabs", "identity"],
   "host_permissions": [
     "*://unemployment.edd.ca.gov/*",
     "https://sheets.googleapis.com/*",
