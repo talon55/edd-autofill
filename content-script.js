@@ -1,4 +1,23 @@
-// Selectors filled in during Task 9. Keys must match sheet column headers exactly.
+const VALUE_MAP = {
+  'Contact Type': {
+    'Mail':      '6656',
+    'Email':     '6658',
+    'In-Person': '6659',
+    'Online':    '6660',
+    'Phone':     '6661',
+  },
+  'Outcome': {
+    'Applied':           '6662',
+    'No Decision':       '6663',
+    'Hired':             '6664',
+    'Not Hiring':        '6665',
+    'Pending':           '6666',
+    'Interviewed':       '6667',
+    'Interview Date Set':'6668',
+    'No Response':       '6669',
+  },
+};
+
 const FIELD_MAP = {
   'Date of Contact':      '#contentMain_contentMain_ucRegularDUA4581WorkSearchRecordV3_frmFormWorkSearchInformation_prtDateOfContact_ctl00_txtDatePicker',
   'Type of Work':         '#contentMain_contentMain_ucRegularDUA4581WorkSearchRecordV3_frmFormWorkSearchInformation_prtTypeOfWork_ctl00_txtValue',
@@ -15,7 +34,8 @@ function fillForm(fieldValues) {
     if (!selector) continue;
     const el = document.querySelector(selector);
     if (!el) return { success: false, field: colName };
-    el.value = fieldValues[colName] || '';
+    const raw = fieldValues[colName] || '';
+    el.value = (VALUE_MAP[colName] && VALUE_MAP[colName][raw]) || raw;
     el.dispatchEvent(new Event('input',  { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
