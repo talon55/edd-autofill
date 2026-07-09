@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>EDD Autofill — Dummy Form</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
+    label { display: block; margin-top: 1rem; }
+    input { width: 100%; margin-top: 0.25rem; padding: 0.3rem; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <h1>EDD Autofill — Test Form</h1>
+  <p><em>Serve with <code>python3 -m http.server 8765</code> from the project root, then open <code>http://localhost:8765/dummy-form/</code>.</em></p>
+  <form>
+    <label>Date of Contact      <input type="text" name="dateOfContact" /></label>
+    <label>Type of Work         <input type="text" name="typeOfWork" /></label>
+    <label>Employer/Agency Name <input type="text" name="employerName" /></label>
+    <label>Contact Type         <input type="text" name="contactType" /></label>
+    <label>Outcome              <input type="text" name="outcome" /></label>
+    <label>Name of Person       <input type="text" name="contactPerson" /></label>
+    <label>URL/Email            <input type="text" name="urlEmail" /></label>
+    <label>Phone Number         <input type="text" name="phoneNumber" /></label>
+  </form>
+</body>
+</html>
