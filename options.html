@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>EDD Autofill Options</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
+    label { display: block; margin-top: 1rem; font-weight: bold; }
+    .radio-group { font-weight: normal; margin-top: 0.25rem; }
+    .radio-group label { display: inline; margin-right: 1.5rem; font-weight: normal; }
+    input[type="text"], input[type="password"] { width: 100%; box-sizing: border-box; margin-top: 0.25rem; padding: 0.4rem; }
+    button { margin-top: 1rem; padding: 0.5rem 1.5rem; }
+    #status { margin-top: 0.75rem; }
+    .error { color: #c00; }
+    .ok { color: #080; }
+    .subsection { border-left: 3px solid #ccc; padding-left: 1rem; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>EDD Autofill Settings</h1>
+
+  <label>Auth Mode
+    <div class="radio-group">
+      <label><input type="radio" name="authMode" value="chrome-extension"> Chrome Extension (PKCE, no secret)</label>
+      <label><input type="radio" name="authMode" value="web-application"> Web Application (client secret required)</label>
+    </div>
+  </label>
+
+  <label for="sheetId">Google Sheet ID
+    <input type="text" id="sheetId" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms" />
+  </label>
+
+  <div id="ceSection" class="subsection">
+    <label for="ceClientId">Chrome Extension Client ID
+      <input type="text" id="ceClientId" placeholder="123456789012-abc....apps.googleusercontent.com" />
+    </label>
+  </div>
+
+  <div id="waSection" class="subsection" style="display:none">
+    <label for="waClientId">Web Application Client ID
+      <input type="text" id="waClientId" placeholder="123456789012-abc....apps.googleusercontent.com" />
+    </label>
+    <label for="waClientSecret">Client Secret
+      <input type="password" id="waClientSecret" placeholder="GOCSPX-..." />
+    </label>
+  </div>
+
+  <button id="save">Save</button>
+  <div id="status"></div>
+  <script src="options.js"></script>
+</body>
+</html>
