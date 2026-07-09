@@ -1,5 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>EDD Autofill</title></head>
-<body><script src="popup.js"></script></body>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body    { font-family: sans-serif; width: 280px; padding: 1rem; margin: 0; }
+    button  { width: 100%; padding: 0.6rem; font-size: 1rem; cursor: pointer; }
+    #status { margin-top: 0.75rem; font-size: 0.85rem; line-height: 1.4; }
+    .error   { color: #c00; }
+    .success { color: #080; }
+    .working { color: #555; }
+  </style>
+</head>
+<body>
+  <button id="fill">Fill Form</button>
+  <div id="status"></div>
+  <script src="popup.js"></script>
+</body>
 </html>
