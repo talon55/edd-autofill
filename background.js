@@ -117,8 +117,7 @@ async function getAccessToken() {
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-// TODO: replace 'Sheet1' with your actual sheet tab name (visible at the bottom of the spreadsheet)
-const SHEET_TAB_NAME = 'Sheet1';
+const SHEET_TAB_NAME = 'Work Events';
 const SHEET_RANGE    = `${SHEET_TAB_NAME}!A:I`;
 
 // ── Sheets API ────────────────────────────────────────────────────────────────
