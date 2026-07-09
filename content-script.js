@@ -29,12 +29,19 @@ const FIELD_MAP = {
   'Phone Number':         '#contentMain_contentMain_ucRegularDUA4581WorkSearchRecordV3_frmFormWorkSearchInformation_prtPhoneFaxNumber_ctl00_txtValue',
 };
 
+function normalizeDate(val) {
+  const m = val.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return val;
+  return m[1].padStart(2, '0') + '/' + m[2].padStart(2, '0') + '/' + m[3];
+}
+
 function fillForm(fieldValues) {
   for (const [colName, selector] of Object.entries(FIELD_MAP)) {
     if (!selector) continue;
     const el = document.querySelector(selector);
     if (!el) return { success: false, field: colName };
-    const raw = fieldValues[colName] || '';
+    let raw = fieldValues[colName] || '';
+    if (colName === 'Date of Contact') raw = normalizeDate(raw);
     el.value = (VALUE_MAP[colName] && VALUE_MAP[colName][raw]) || raw;
     el.dispatchEvent(new Event('input',  { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
