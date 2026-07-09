@@ -6,8 +6,7 @@
   <style>
     body { font-family: sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
     label { display: block; margin-top: 1rem; font-weight: bold; }
-    input, textarea { width: 100%; box-sizing: border-box; margin-top: 0.25rem; padding: 0.4rem; }
-    textarea { height: 10rem; font-family: monospace; font-size: 0.8rem; }
+    input { width: 100%; box-sizing: border-box; margin-top: 0.25rem; padding: 0.4rem; }
     button { margin-top: 1rem; padding: 0.5rem 1.5rem; }
     #status { margin-top: 0.75rem; }
     .error { color: #c00; }
@@ -19,8 +18,8 @@
   <label for="sheetId">Google Sheet ID
     <input type="text" id="sheetId" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms" />
   </label>
-  <label for="serviceAccountJson">Service Account JSON Key
-    <textarea id="serviceAccountJson" placeholder="Paste the full contents of your service account JSON key file here"></textarea>
+  <label for="clientId">OAuth 2.0 Client ID
+    <input type="text" id="clientId" placeholder="123456789012-abc....apps.googleusercontent.com" />
   </label>
   <button id="save">Save</button>
   <div id="status"></div>
