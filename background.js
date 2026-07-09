@@ -24,15 +24,13 @@ async function cacheTokens(tokenData) {
   await chrome.storage.local.set(update);
 }
 
-async function refreshAccessToken(clientId, refreshToken) {
+async function refreshAccessToken(clientId, clientSecret, refreshToken) {
+  const params = { refresh_token: refreshToken, client_id: clientId, grant_type: 'refresh_token' };
+  if (clientSecret) params.client_secret = clientSecret;
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      refresh_token: refreshToken,
-      client_id:     clientId,
-      grant_type:    'refresh_token',
-    }),
+    body: new URLSearchParams(params),
   });
   if (!res.ok) {
     const body = await res.text();
@@ -44,18 +42,24 @@ async function refreshAccessToken(clientId, refreshToken) {
 }
 
 async function getAccessToken() {
-  const { accessToken, tokenExpiry, refreshToken, clientId } =
-    await chrome.storage.local.get(['accessToken', 'tokenExpiry', 'refreshToken', 'clientId']);
+  const stored = await chrome.storage.local.get([
+    'accessToken', 'tokenExpiry', 'refreshToken',
+    'authMode', 'ceClientId', 'waClientId', 'waClientSecret',
+  ]);
 
-  if (accessToken && tokenExpiry && Date.now() < tokenExpiry) {
-    return accessToken;
+  if (stored.accessToken && stored.tokenExpiry && Date.now() < stored.tokenExpiry) {
+    return stored.accessToken;
   }
+
+  const authMode    = stored.authMode || 'chrome-extension';
+  const clientId    = authMode === 'web-application' ? stored.waClientId    : stored.ceClientId;
+  const clientSecret = authMode === 'web-application' ? stored.waClientSecret : null;
 
   if (!clientId) throw new Error('Client ID not configured');
 
-  if (refreshToken) {
+  if (stored.refreshToken) {
     try {
-      return await refreshAccessToken(clientId, refreshToken);
+      return await refreshAccessToken(clientId, clientSecret, stored.refreshToken);
     } catch {
       // fall through to full auth flow
     }
@@ -87,16 +91,18 @@ async function getAccessToken() {
   const code = new URL(responseUrl).searchParams.get('code');
   if (!code) throw new Error('No authorization code in response');
 
+  const exchangeParams = {
+    code,
+    client_id:     clientId,
+    redirect_uri:  redirectUri,
+    grant_type:    'authorization_code',
+    code_verifier: verifier,
+  };
+  if (clientSecret) exchangeParams.client_secret = clientSecret;
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      code,
-      client_id:     clientId,
-      redirect_uri:  redirectUri,
-      grant_type:    'authorization_code',
-      code_verifier: verifier,
-    }),
+    body: new URLSearchParams(exchangeParams),
   });
 
   if (!tokenRes.ok) {
@@ -146,9 +152,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 async function handleFill() {
-  const { sheetId, clientId } =
-    await chrome.storage.local.get(['sheetId', 'clientId']);
-  if (!sheetId || !clientId) {
+  const { sheetId, authMode, ceClientId, waClientId, waClientSecret } =
+    await chrome.storage.local.get(['sheetId', 'authMode', 'ceClientId', 'waClientId', 'waClientSecret']);
+  const mode = authMode || 'chrome-extension';
+  const activeClientId = mode === 'web-application' ? waClientId : ceClientId;
+  if (!sheetId || !activeClientId || (mode === 'web-application' && !waClientSecret)) {
     return { success: false, message: 'Please complete setup in Options before using.' };
   }
 
