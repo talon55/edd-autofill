@@ -146,16 +146,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 async function handleFill() {
-  const { sheetId, serviceAccountJson } = await chrome.storage.local.get(['sheetId', 'serviceAccountJson']);
-  if (!sheetId || !serviceAccountJson) {
+  const { sheetId, clientId } = await chrome.storage.local.get(['sheetId', 'clientId']);
+  if (!sheetId || !clientId) {
     return { success: false, message: 'Please complete setup in Options before using.' };
   }
 
   let token;
   try {
-    token = await getAccessToken(serviceAccountJson);
+    token = await getAccessToken();
   } catch {
-    return { success: false, message: 'Could not authenticate with Google. Check your service account JSON.' };
+    return { success: false, message: 'Could not authenticate with Google. Check your Client ID in Options.' };
   }
 
   const rows    = await fetchSheetValues(token, sheetId, SHEET_RANGE);
