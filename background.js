@@ -2,65 +2,111 @@ importScripts('src/logic.js');
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-async function getAccessToken(serviceAccountJson) {
-  const sa  = JSON.parse(serviceAccountJson);
-  const now = Math.floor(Date.now() / 1000);
-
-  const header  = { alg: 'RS256', typ: 'JWT' };
-  const payload = {
-    iss:   sa.client_email,
-    scope: 'https://www.googleapis.com/auth/spreadsheets',
-    aud:   'https://oauth2.googleapis.com/token',
-    iat:   now,
-    exp:   now + 3600,
-  };
-
-  const b64url = obj =>
-    btoa(JSON.stringify(obj))
-      .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-
-  const signingInput = `${b64url(header)}.${b64url(payload)}`;
-
-  const pemContents = sa.private_key
-    .replace(/-----BEGIN PRIVATE KEY-----/, '')
-    .replace(/-----END PRIVATE KEY-----/, '')
-    .replace(/\s/g, '');
-  const keyDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
-
-  const cryptoKey = await crypto.subtle.importKey(
-    'pkcs8',
-    keyDer,
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-
-  const sigBytes = await crypto.subtle.sign(
-    'RSASSA-PKCS1-v1_5',
-    cryptoKey,
-    new TextEncoder().encode(signingInput)
-  );
-
-  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sigBytes)))
+function base64urlEncode(buffer) {
+  return btoa(String.fromCharCode(...new Uint8Array(buffer)))
     .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
 
-  const jwt = `${signingInput}.${sigB64}`;
+async function generatePKCE() {
+  const verifierBytes = crypto.getRandomValues(new Uint8Array(32));
+  const verifier = base64urlEncode(verifierBytes);
+  const challengeBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  const challenge = base64urlEncode(challengeBuffer);
+  return { verifier, challenge };
+}
 
+async function cacheTokens(tokenData) {
+  const update = {
+    accessToken:  tokenData.access_token,
+    tokenExpiry:  Date.now() + (tokenData.expires_in - 60) * 1000,
+  };
+  if (tokenData.refresh_token) update.refreshToken = tokenData.refresh_token;
+  await chrome.storage.local.set(update);
+}
+
+async function refreshAccessToken(clientId, refreshToken) {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: jwt,
+      refresh_token: refreshToken,
+      client_id:     clientId,
+      grant_type:    'refresh_token',
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Token refresh failed (${res.status}): ${body}`);
+  }
+  const tokenData = await res.json();
+  await cacheTokens(tokenData);
+  return tokenData.access_token;
+}
+
+async function getAccessToken() {
+  const { accessToken, tokenExpiry, refreshToken, clientId } =
+    await chrome.storage.local.get(['accessToken', 'tokenExpiry', 'refreshToken', 'clientId']);
+
+  if (accessToken && tokenExpiry && Date.now() < tokenExpiry) {
+    return accessToken;
+  }
+
+  if (!clientId) throw new Error('Client ID not configured');
+
+  if (refreshToken) {
+    try {
+      return await refreshAccessToken(clientId, refreshToken);
+    } catch {
+      // fall through to full auth flow
+    }
+  }
+
+  const { verifier, challenge } = await generatePKCE();
+  const redirectUri = chrome.identity.getRedirectURL();
+
+  const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  authUrl.searchParams.set('client_id',             clientId);
+  authUrl.searchParams.set('redirect_uri',          redirectUri);
+  authUrl.searchParams.set('response_type',         'code');
+  authUrl.searchParams.set('scope',                 'https://www.googleapis.com/auth/spreadsheets');
+  authUrl.searchParams.set('code_challenge',        challenge);
+  authUrl.searchParams.set('code_challenge_method', 'S256');
+  authUrl.searchParams.set('access_type',           'offline');
+  authUrl.searchParams.set('prompt',                'consent');
+
+  const responseUrl = await new Promise((resolve, reject) => {
+    chrome.identity.launchWebAuthFlow(
+      { url: authUrl.toString(), interactive: true },
+      url => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve(url);
+      }
+    );
+  });
+
+  const code = new URL(responseUrl).searchParams.get('code');
+  if (!code) throw new Error('No authorization code in response');
+
+  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      code,
+      client_id:     clientId,
+      redirect_uri:  redirectUri,
+      grant_type:    'authorization_code',
+      code_verifier: verifier,
     }),
   });
 
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Token exchange failed (${res.status}): ${body}`);
+  if (!tokenRes.ok) {
+    const body = await tokenRes.text();
+    throw new Error(`Token exchange failed (${tokenRes.status}): ${body}`);
   }
 
-  return (await res.json()).access_token;
+  const tokenData = await tokenRes.json();
+  await cacheTokens(tokenData);
+  return tokenData.access_token;
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
