@@ -1,5 +1,5 @@
 // Confirmed and updated in Task 9 after reverse-engineering the EDD form URL.
-const EDD_URL_PATTERN = 'unemployment.edd.ca.gov';
+const EDD_URL_PATTERN = 'uio.edd.ca.gov';
 
 const btn    = document.getElementById('fill');
 const status = document.getElementById('status');

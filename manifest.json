@@ -13,7 +13,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://unemployment.edd.ca.gov/*"],
+      "matches": ["https://uio.edd.ca.gov/*"],
       "js": ["content-script.js"]
     }
   ],
@@ -23,7 +23,7 @@
   },
   "permissions": ["activeTab", "storage", "tabs", "identity"],
   "host_permissions": [
-    "*://unemployment.edd.ca.gov/*",
+    "https://uio.edd.ca.gov/*",
     "https://sheets.googleapis.com/*",
     "https://oauth2.googleapis.com/*"
   ]

@@ -1,13 +1,13 @@
 // Selectors filled in during Task 9. Keys must match sheet column headers exactly.
 const FIELD_MAP = {
-  'Date of Contact':      null,
-  'Type of Work':         null,
-  'Employer/Agency Name': null,
-  'Contact Type':         null,
-  'Outcome':              null,
-  'Name of Person':       null,
-  'URL/Email':            null,
-  'Phone Number':         null,
+  'Date of Contact':      '#contentMain_contentMain_ucRegularDUA4581WorkSearchRecordV3_frmFormWorkSearchInformation_prtDateOfContact_ctl00_txtDatePicker',
+  'Type of Work':         '#contentMain_contentMain_ucRegularDUA4581WorkSearchRecordV3_frmFormWorkSearchInformation_prtTypeOfWork_ctl00_txtValue',
+  'Employer/Agency Name': '#contentMain_contentMain_ucRegularDUA4581WorkSearchRecordV3_frmFormWorkSearchInformation_prtEmployerAgencyName_ctl00_txtValue',
+  'Contact Type':         '#contentMain_contentMain_ucRegularDUA4581WorkSearchRecordV3_frmFormWorkSearchInformation_prtContactType_ctl00_ddlValue',
+  'Outcome':              '#contentMain_contentMain_ucRegularDUA4581WorkSearchRecordV3_frmFormWorkSearchInformation_prtOutcomeWorkInquiry_ctl00_ddlValue',
+  'Name of Person':       '#contentMain_contentMain_ucRegularDUA4581WorkSearchRecordV3_frmFormWorkSearchInformation_prtWorkSearchPersonContacted_ctl00_txtValue',
+  'URL/Email':            '#contentMain_contentMain_ucRegularDUA4581WorkSearchRecordV3_frmFormWorkSearchInformation_prtWebSiteURLEmailContact_ctl00_txtValue',
+  'Phone Number':         '#contentMain_contentMain_ucRegularDUA4581WorkSearchRecordV3_frmFormWorkSearchInformation_prtPhoneFaxNumber_ctl00_txtValue',
 };
 
 function fillForm(fieldValues) {
