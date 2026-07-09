@@ -146,7 +146,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 async function handleFill() {
-  const { sheetId, clientId } = await chrome.storage.local.get(['sheetId', 'clientId']);
+  const { sheetId, clientId } =
+    await chrome.storage.local.get(['sheetId', 'clientId']);
   if (!sheetId || !clientId) {
     return { success: false, message: 'Please complete setup in Options before using.' };
   }
