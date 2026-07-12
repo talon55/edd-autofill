@@ -35,6 +35,12 @@ function normalizeDate(val) {
   return m[1].padStart(2, '0') + '/' + m[2].padStart(2, '0') + '/' + m[3];
 }
 
+function normalizePhone(val) {
+  const digits = (val || '').replace(/\D/g, '');
+  if (digits.length !== 10) return val;
+  return digits;
+}
+
 function fillForm(fieldValues) {
   for (const [colName, selector] of Object.entries(FIELD_MAP)) {
     if (!selector) continue;
@@ -42,6 +48,7 @@ function fillForm(fieldValues) {
     if (!el) return { success: false, field: colName };
     let raw = fieldValues[colName] || '';
     if (colName === 'Date of Contact') raw = normalizeDate(raw);
+    if (colName === 'Phone Number') raw = normalizePhone(raw);
     el.value = (VALUE_MAP[colName] && VALUE_MAP[colName][raw]) || raw;
     el.dispatchEvent(new Event('input',  { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
